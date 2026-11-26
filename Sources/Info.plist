@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDisplayName</key><string>Burner</string>
+    <key>UILaunchScreen</key><dict/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+    </dict>
+    <key>NSMicrophoneUsageDescription</key><string>Запись голосовых сообщений</string>
+    <key>NSPhotoLibraryAddUsageDescription</key><string>Сохранение фото в галерею</string>
+    <key>NSPhotoLibraryUsageDescription</key><string>Выбор фото для отправки</string>
+</dict>
+</plist>

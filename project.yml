@@ -17,16 +17,6 @@ targets:
       - package: SocketIO
     info:
       path: Sources/Info.plist
-      properties:
-        CFBundleDisplayName: Burner
-        UILaunchScreen: {}
-        UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
-        NSAppTransportSecurity:
-          NSAllowsArbitraryLoads: true
-        NSMicrophoneUsageDescription: "Запись голосовых сообщений"
-        NSPhotoLibraryAddUsageDescription: "Сохранение фото в галерею"
-        NSPhotoLibraryUsageDescription: "Выбор фото для отправки"
     settings:
       base:
         TARGETED_DEVICE_FAMILY: "1,2"

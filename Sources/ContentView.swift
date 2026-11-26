@@ -223,7 +223,7 @@ struct ContentView: View {
     // MARK: Socket
     func connectAndJoin() {
         let url = URL(string: serverURL) ?? URL(string: "http://48.102.161.53:3000")!
-        let mgr = SocketManager(socketURL: url, config: [.log(false), .compress])
+        let mgr = SocketManager(socketURL: url, config: [.log(true), .compress, .forceNew(true)])
         let s = mgr.defaultSocket
         socket = s
 
