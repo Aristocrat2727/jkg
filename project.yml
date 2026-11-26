@@ -3,18 +3,12 @@ options:
   bundleIdPrefix: com.burner
 deploymentTarget:
   iOS: "15.0"
-packages:
-  SocketIO:
-    url: https://github.com/socketio/socket.io-client-swift.git
-    exactVersion: 16.1.1
 targets:
   Burner:
     type: application
     platform: iOS
     sources:
       - Sources
-    dependencies:
-      - package: SocketIO
     info:
       path: Sources/Info.plist
     settings:

@@ -1,7 +1,7 @@
 import SwiftUI
-import SocketIO
 import PhotosUI
 import AVFoundation
+import UserNotifications
 
 @main
 struct BurnerApp: App {
@@ -10,20 +10,16 @@ struct BurnerApp: App {
     }
 }
 
-// MARK: - Models
 struct ChatMessage: Identifiable {
     let id = UUID()
     let username: String
     let text: String
-    let type: String   // text / image / voice
-    let time: Date
+    let type: String
     let mine: Bool
 }
 
-// MARK: - Main view
 struct ContentView: View {
-    // ⚠️ IP твоего сервера можно менять в настройках приложения
-    @AppStorage("server") private var serverURL = "http://48.102.161.53:3000"
+    @AppStorage("server") private var serverHost = "48.102.161.53:3000"
 
     @State private var screen: Screen = .login
     @State private var roomCode = ""
@@ -39,9 +35,9 @@ struct ContentView: View {
     @State private var playingMsgId: UUID? = nil
     @State private var showSettings = false
     @State private var serverInput = ""
+    @State private var fullscreenImage: UIImage? = nil
 
-    private let manager = SocketManager(socketURL: URL(string: "http://placeholder")!, config: [.log(false), .compress])
-    @State private var socket: SocketIOClient? = nil
+    @State private var socket: WSClient? = nil
 
     private let recorder = RecorderHelper()
     private let player = PlayerHelper()
@@ -75,9 +71,24 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showSettings) { settingsSheet }
+        .fullScreenCover(isPresented: Binding(
+            get: { fullscreenImage != nil },
+            set: { if !$0 { fullscreenImage = nil } }
+        )) {
+            if let img = fullscreenImage {
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    VStack {
+                        Image(uiImage: img).resizable().scaledToFit()
+                        Button("ЗАКРЫТЬ") { fullscreenImage = nil }
+                            .font(.system(size: 14, design: .monospaced)).foregroundColor(.green)
+                            .padding()
+                    }
+                }
+            }
+        }
     }
 
-    // MARK: Login
     var loginView: some View {
         VStack(spacing: 20) {
             Spacer()
@@ -105,29 +116,29 @@ struct ContentView: View {
                 .buttonStyle(Btn())
                 .disabled(roomCode.count < 4)
 
-            Button("НАСТРОЙКИ СЕРВЕРА") { serverInput = serverURL; showSettings = true }
+            Button("НАСТРОЙКИ СЕРВЕРА") { serverInput = serverHost; showSettings = true }
                 .font(.system(size: 12, design: .monospaced)).foregroundColor(.gray)
             Spacer()
-            Text(status).font(.system(size: 11, design: .monospaced)).foregroundColor(.yellow)
+            Text(status).font(.system(size: 11, design: .monospaced)).foregroundColor(.yellow).padding(.bottom, 20)
         }
     }
 
     var settingsSheet: some View {
         VStack(spacing: 16) {
-            Text("Адрес сервера").font(.system(size: 14, design: .monospaced)).foregroundColor(.green)
-            TextField("http://...", text: $serverInput)
+            Text("Сервер (host:port)").font(.system(size: 14, design: .monospaced)).foregroundColor(.green)
+            TextField("48.102.161.53:3000", text: $serverInput)
                 .font(.system(size: 14, design: .monospaced)).foregroundColor(.green)
                 .autocorrectionDisabled().textInputAutocapitalization(.never)
+                .keyboardType(.asciiCapable)
                 .padding(10).overlay(Rectangle().stroke(Color.green, lineWidth: 1))
             Button("СОХРАНИТЬ") {
-                serverURL = serverInput
+                serverHost = serverInput
                 showSettings = false
             }.buttonStyle(Btn())
             Spacer()
         }.padding().presentationDetents([.medium])
     }
 
-    // MARK: Chat
     var chatView: some View {
         VStack(spacing: 0) {
             HStack {
@@ -193,12 +204,12 @@ struct ContentView: View {
                     }
                 case "voice":
                     Button {
-                        player.play(base64: m.text, id: m.id)
+                        player.play(base64: m.text)
                         playingMsgId = m.id
                     } label: {
                         HStack {
                             Image(systemName: playingMsgId == m.id && player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            Text("ГС \(recordTimeLabel(m.text))").font(.system(size: 12, design: .monospaced))
+                            Text("ГС").font(.system(size: 12, design: .monospaced))
                         }
                     }.foregroundColor(.green)
                 default:
@@ -212,78 +223,55 @@ struct ContentView: View {
         }
     }
 
-    @State var fullscreenImage: UIImage? = nil
-
-    func recordTimeLabel(_ b64: String) -> String {
-        let bytes = (b64.count * 3) / 4
-        let sec = bytes / 16000  // ~16КБ/с AAC 32kbps
-        return "\(sec)с"
-    }
-
-    // MARK: Socket
-    func connectAndJoin() {
-        let url = URL(string: serverURL) ?? URL(string: "http://48.102.161.53:3000")!
-        let mgr = SocketManager(socketURL: url, config: [.log(true), .compress, .forceNew(true)])
-        let s = mgr.defaultSocket
-        socket = s
-
-        s.on("history") { data, _ in
-            guard let d = data.first as? [String: Any],
-                  let arr = d["messages"] as? [[String: Any]] else { return }
-            let nick = d["username"] as? String ?? ""
-            DispatchQueue.main.async {
-                myNick = nick
-                messages = arr.compactMap { parse($0) }
-                screen = .chat
-            }
+    // MARK: Connection
+    func join() {
+        status = "подключение..."
+        let ws = WSClient(host: serverHost)
+        socket = ws
+        ws.onEvent = { event, data in
+            DispatchQueue.main.async { handle(event: event, data: data) }
         }
-        s.on("newMessage") { data, _ in
-            guard let d = data.first as? [String: Any] else { return }
-            DispatchQueue.main.async { if let m = parse(d) { messages.append(m) } }
-        }
-        s.on("userJoined") { data, _ in
-            guard let d = data.first as? [String: Any], let c = d["count"] as? Int else { return }
-            DispatchQueue.main.async { online = c }
-        }
-        s.on("kicked") { _, _ in
-            DispatchQueue.main.async { leave(); status = "кикнут (AFK)" }
-        }
-        s.on(clientEvent: .disconnect) { _, _ in
-            DispatchQueue.main.async { if screen == .chat { status = "связь потеряна" } }
-        }
-
-        s.on(clientEvent: .connect) { [code = roomCode] _, _ in
-            DispatchQueue.main.async { status = "подключено, входим..." }
-            s.emit("joinRoom", ["roomCode": code, "username": ""])
-        }
-        s.on(clientEvent: .error) { data, _ in
-            DispatchQueue.main.async { status = "ошибка: \(data)" }
-        }
-        s.connect()
+        ws.connect()
+        ws.send(event: "join", data: ["roomCode": roomCode, "username": ""])
         startPing()
     }
 
-    func parse(_ d: [String: Any]) -> ChatMessage? {
-        guard let text = d["text"] as? String,
-              let type = d["type"] as? String else { return nil }
-        let user = d["username"] as? String ?? "?"
-        let time = Date(timeIntervalSince1970: (d["time"] as? Double ?? Date().timeIntervalSince1970) / 1000)
-        return ChatMessage(username: user, text: text, type: type, time: time, mine: user == myNick)
+    func handle(event: String, data: [String: Any]) {
+        switch event {
+        case "history":
+            myNick = data["username"] as? String ?? myNick
+            if let arr = data["messages"] as? [[String: Any]] {
+                messages = arr.compactMap { parse($0) }
+            }
+            status = ""
+            screen = .chat
+        case "newMessage":
+            if let m = parse(data) { messages.append(m) }
+        case "userJoined":
+            online = data["count"] as? Int ?? online
+        case "error":
+            status = data["msg"] as? String ?? "ошибка"
+        case "closed":
+            if screen == .chat { status = "связь потеряна" }
+        default: break
+        }
     }
 
-    func join() { status = "подключение..."; connectAndJoin() }
+    func parse(_ d: [String: Any]) -> ChatMessage? {
+        guard let text = d["text"] as? String, let type = d["type"] as? String else { return nil }
+        let user = d["username"] as? String ?? "?"
+        return ChatMessage(username: user, text: text, type: type, mine: user == myNick)
+    }
 
     func startPing() {
-        let code = roomCode
-        let nick = myNick
         Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-            socket?.emit("pingAlive", ["roomCode": code, "username": nick])
+            socket?.send(event: "ping", data: [:])
         }
     }
 
     func leave() {
-        socket?.emit("leaveRoom")
-        socket?.disconnect()
+        socket?.send(event: "leave", data: [:])
+        socket?.close()
         socket = nil
         messages = []
         online = 0
@@ -293,21 +281,77 @@ struct ContentView: View {
     func sendText() {
         let t = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { return }
-        socket?.emit("sendMessage", ["roomCode": roomCode, "username": myNick, "text": t, "type": "text"])
+        socket?.send(event: "send", data: ["text": t, "type": "text"])
         inputText = ""
     }
-
     func sendImage(_ data: Data) {
-        socket?.emit("sendMessage", ["roomCode": roomCode, "username": myNick, "text": data.base64EncodedString(), "type": "image"])
+        socket?.send(event: "send", data: ["text": data.base64EncodedString(), "type": "image"])
     }
-
     func sendVoice(_ data: Data) {
-        socket?.emit("sendMessage", ["roomCode": roomCode, "username": myNick, "text": data.base64EncodedString(), "type": "voice"])
+        socket?.send(event: "send", data: ["text": data.base64EncodedString(), "type": "voice"])
     }
-
     func toggleRecord() {
         if isRecording { recorder.stop() } else { recorder.start() }
         isRecording.toggle()
+    }
+}
+
+// MARK: - Нативный WebSocket клиент (без зависимостей)
+class WSClient: NSObject, URLSessionWebSocketDelegate {
+    private var task: URLSessionWebSocketTask?
+    private var session: URLSession?
+    var onEvent: ((String, [String: Any]) -> Void)?
+    private var connected = false
+
+    init(host: String) {
+        super.init()
+        let h = host.hasPrefix("http") ? host : "http://\(host)"
+        let url = URL(string: h)!
+        var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+        comps.scheme = "ws"
+        session = URLSession(configuration: .default)
+        task = session?.webSocketTask(with: comps.url!)
+    }
+
+    func connect() {
+        task?.resume()
+        receiveLoop()
+    }
+
+    private func receiveLoop() {
+        task?.receive { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let msg):
+                if case .string(let text) = msg,
+                   let d = text.data(using: .utf8),
+                   let obj = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                   let ev = obj["event"] as? String {
+                    self.onEvent?(ev, obj["data"] as? [String: Any] ?? [:])
+                }
+                if !self.connected {
+                    self.connected = true
+                }
+                self.receiveLoop()
+            case .failure(let err):
+                self.connected = false
+                self.onEvent?("closed", ["err": err.localizedDescription])
+            }
+        }
+    }
+
+    func send(event: String, data: [String: Any]) {
+        let payload: [String: Any] = ["event": event, "data": data]
+        guard let d = try? JSONSerialization.data(withJSONObject: payload),
+              let s = String(data: d, encoding: .utf8) else { return }
+        task?.send(.string(s)) { err in
+            if let err = err { self.onEvent?("closed", ["err": err.localizedDescription]) }
+        }
+    }
+
+    func close() {
+        task?.cancel(with: .normalClosure, reason: nil)
+        connected = false
     }
 }
 
@@ -322,7 +366,7 @@ struct Btn: ButtonStyle {
     }
 }
 
-// MARK: - Recorder (AAC m4a, до 30 сек)
+// MARK: - Recorder
 class RecorderHelper: ObservableObject {
     @Published var elapsed = 0
     @Published var finishedData: Data? = nil
@@ -371,7 +415,7 @@ class PlayerHelper: ObservableObject {
     @Published var isPlaying = false
     private var p: AVAudioPlayer?
 
-    func play(base64: String, id: UUID) {
+    func play(base64: String) {
         if isPlaying, let p = p { p.stop(); isPlaying = false; return }
         guard let d = Data(base64Encoded: base64) else { return }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("p.m4a")
