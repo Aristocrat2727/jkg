@@ -22,7 +22,7 @@ struct ChatMessage: Identifiable {
 
 // MARK: - Main view
 struct ContentView: View {
-    // ⚠️ IP твоего сервера можно менять в настройках приложения
+    // Адрес сервера меняется в настройках приложения
     @AppStorage("server") private var serverURL = "http://48.102.161.53:3000"
 
     @State private var screen: Screen = .login
@@ -39,9 +39,10 @@ struct ContentView: View {
     @State private var playingMsgId: UUID? = nil
     @State private var showSettings = false
     @State private var serverInput = ""
+    @State private var fullscreenImage: UIImage? = nil
 
-    private let manager = SocketManager(socketURL: URL(string: "http://placeholder")!, config: [.log(false), .compress])
-    @State private var socket: SocketClient? = nil
+    @State private var socket: SocketIOClient? = nil
+    @State private var manager: SocketManager? = nil
 
     private let recorder = RecorderHelper()
     private let player = PlayerHelper()
@@ -75,6 +76,22 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $showSettings) { settingsSheet }
+        .fullScreenCover(isPresented: Binding(
+            get: { fullscreenImage != nil },
+            set: { if !$0 { fullscreenImage = nil } }
+        )) {
+            if let img = fullscreenImage {
+                ZStack {
+                    Color.black.ignoresSafeArea()
+                    VStack {
+                        Image(uiImage: img).resizable().scaledToFit()
+                        Button("ЗАКРЫТЬ") { fullscreenImage = nil }
+                            .font(.system(size: 14, design: .monospaced)).foregroundColor(.green)
+                            .padding()
+                    }
+                }
+            }
+        }
     }
 
     // MARK: Login
@@ -192,12 +209,12 @@ struct ContentView: View {
                     }
                 case "voice":
                     Button {
-                        player.play(base64: m.text, id: m.id)
+                        player.play(base64: m.text)
                         playingMsgId = m.id
                     } label: {
                         HStack {
                             Image(systemName: playingMsgId == m.id && player.isPlaying ? "pause.circle.fill" : "play.circle.fill")
-                            Text("ГС \(recordTimeLabel(m.text))").font(.system(size: 12, design: .monospaced))
+                            Text("ГС").font(.system(size: 12, design: .monospaced))
                         }
                     }.foregroundColor(.green)
                 default:
@@ -211,18 +228,11 @@ struct ContentView: View {
         }
     }
 
-    @State var fullscreenImage: UIImage? = nil
-
-    func recordTimeLabel(_ b64: String) -> String {
-        let bytes = (b64.count * 3) / 4
-        let sec = bytes / 16000  // ~16КБ/с AAC 32kbps
-        return "\(sec)с"
-    }
-
     // MARK: Socket
     func connectAndJoin() {
         let url = URL(string: serverURL) ?? URL(string: "http://48.102.161.53:3000")!
         let mgr = SocketManager(socketURL: url, config: [.log(false), .compress])
+        manager = mgr
         let s = mgr.defaultSocket
         socket = s
 
@@ -231,9 +241,10 @@ struct ContentView: View {
                   let arr = d["messages"] as? [[String: Any]] else { return }
             let nick = d["username"] as? String ?? ""
             DispatchQueue.main.async {
-                myNick = nick
+                if !nick.isEmpty { myNick = nick }
                 messages = arr.compactMap { parse($0) }
                 screen = .chat
+                status = ""
             }
         }
         s.on("newMessage") { data, _ in
@@ -269,6 +280,7 @@ struct ContentView: View {
         socket?.emit("leaveRoom")
         socket?.disconnect()
         socket = nil
+        manager = nil
         messages = []
         online = 0
         screen = .login
@@ -355,7 +367,7 @@ class PlayerHelper: ObservableObject {
     @Published var isPlaying = false
     private var p: AVAudioPlayer?
 
-    func play(base64: String, id: UUID) {
+    func play(base64: String) {
         if isPlaying, let p = p { p.stop(); isPlaying = false; return }
         guard let d = Data(base64Encoded: base64) else { return }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("p.m4a")
