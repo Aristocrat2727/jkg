@@ -16,18 +16,19 @@ targets:
     dependencies:
       - package: SocketIO
     info:
-      path: Burner/Info.plist
+      path: Sources/Info.plist
       properties:
+        CFBundleDisplayName: Burner
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
         NSMicrophoneUsageDescription: "Запись голосовых сообщений"
         NSPhotoLibraryAddUsageDescription: "Сохранение фото в галерею"
-        NSCameraUsageDescription: "Отправка фото в чат"
         NSPhotoLibraryUsageDescription: "Выбор фото для отправки"
     settings:
       base:
-        GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_IDENTITY: ""
         CODE_SIGNING_REQUIRED: NO
