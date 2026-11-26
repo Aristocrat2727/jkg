@@ -1,0 +1,48 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: |
+          git clone https://github.com/yonaskolb/XcodeGen.git xcodegen-src
+          cd xcodegen-src
+          swift build -c release
+          cp .build/release/xcodegen /usr/local/bin/
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Resolve SPM packages
+        run: |
+          xcodebuild -resolvePackageDependencies -project Burner.xcodeproj -scheme Burner
+
+      - name: Build unsigned IPA
+        run: |
+          set +e
+          xcodebuild -project Burner.xcodeproj -scheme Burner -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" GENERATE_INFOPLIST_FILE=YES build 2>&1 | tee full.log
+          grep -E "error:" full.log | head -30 > errors.txt
+          echo "===== ERRORS ====="
+          cat errors.txt
+          if [ -s errors.txt ]; then exit 1; fi
+          mkdir -p Payload
+          cp -r build/Build/Products/Release-iphoneos/Burner.app Payload/
+          zip -r Burner.ipa Payload
+
+      - name: Print errors
+        if: failure()
+        run: cat errors.txt 2>/dev/null || echo "нет errors.txt"
+
+      - uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: Burner-ipa
+          path: Burner.ipa
