@@ -276,8 +276,8 @@ struct ContentView: View {
     func startPing() {
         let code = roomCode
         let nick = myNick
-        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            self?.socket?.emit("pingAlive", ["roomCode": code, "username": nick])
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            socket?.emit("pingAlive", ["roomCode": code, "username": nick])
         }
     }
 
