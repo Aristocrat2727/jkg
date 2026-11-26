@@ -252,14 +252,14 @@ struct ContentView: View {
             DispatchQueue.main.async { if screen == .chat { status = "связь потеряна" } }
         }
 
-        s.on(clientEvent: .connect) { _, _ in
-            DispatchQueue.main.async { status = "подключено, ждём историю..." }
+        s.on(clientEvent: .connect) { [code = roomCode] _, _ in
+            DispatchQueue.main.async { status = "подключено, входим..." }
+            s.emit("joinRoom", ["roomCode": code, "username": ""])
         }
         s.on(clientEvent: .error) { data, _ in
             DispatchQueue.main.async { status = "ошибка: \(data)" }
         }
         s.connect()
-        s.emit("joinRoom", ["roomCode": roomCode, "username": ""])
         startPing()
     }
 
