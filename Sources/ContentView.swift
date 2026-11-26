@@ -41,7 +41,7 @@ struct ContentView: View {
     @State private var serverInput = ""
 
     private let manager = SocketManager(socketURL: URL(string: "http://placeholder")!, config: [.log(false), .compress])
-    @State private var socket: SocketClient? = nil
+    @State private var socket: SocketIOClient? = nil
 
     private let recorder = RecorderHelper()
     private let player = PlayerHelper()
@@ -255,7 +255,7 @@ struct ContentView: View {
         s.on(clientEvent: .connect) { _, _ in
             DispatchQueue.main.async { status = "подключено, ждём историю..." }
         }
-        s.on(clientEvent: .connectError) { data, _ in
+        s.on(clientEvent: .error) { data, _ in
             DispatchQueue.main.async { status = "ошибка: \(data)" }
         }
         s.connect()
